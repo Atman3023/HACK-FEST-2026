@@ -6,6 +6,12 @@ ROOT = Path(__file__).resolve().parent.parent
 # Vocabulary is strictly these letters. Never claim general ISL translation.
 LETTERS = ("A", "B", "C")
 
+# Action signs (dynamic, body-relative). NONE = "not a known sign" rejection class.
+ACTIONS = ("BLOOD_PRESSURE", "FEVER", "STOMACH_ACHE")
+ACTION_CLASSES = ACTIONS + ("NONE",)
+CLIP_SECONDS = 3.0
+COUNTDOWN_SECONDS = 3
+
 # Decision thresholds (top confidence)
 RETRY_BELOW = 0.60   # < 60%  -> ask user to retry
 FINAL_AT = 0.85      # >= 85% -> final answer; in between -> confirm top 2
@@ -23,6 +29,7 @@ SEED = 42
 RAW_DIR = ROOT / "data" / "raw"
 LIBRARY_PATH = ROOT / "data" / "library" / "landmarks.npz"
 HANDWRITING_TEST_DIR = ROOT / "data" / "handwriting_test"
+ACTIONS_DIR = ROOT / "data" / "actions"          # <CLASS>/<signer>_<n>.mp4
 MODELS_DIR = ROOT / "models"
 SIGN_MODEL_PATH = MODELS_DIR / "sign_model.npz"
 HANDWRITING_MODEL_PATH = MODELS_DIR / "handwriting_model.npz"

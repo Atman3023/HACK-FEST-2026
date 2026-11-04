@@ -42,8 +42,15 @@ def calibrate(X, y, letters=config.LETTERS, k=config.K_NEAREST, Xm=None, groups=
     dist = pairwise_dist(X, X)
     if Xm is not None:
         dist = np.minimum(dist, pairwise_dist(Xm, X))
-    groups = np.arange(len(X)) if groups is None else np.asarray(groups)
+    return calibrate_from_dist(dist, y, letters, k, groups)
+
+
+def calibrate_from_dist(dist, y, letters=config.LETTERS, k=config.K_NEAREST, groups=None):
+    """Same as calibrate() but from a precomputed (N, N) distance matrix (e.g. DTW)."""
+    dist = np.array(dist, dtype=np.float64)
+    groups = np.arange(len(y)) if groups is None else np.asarray(groups)
     dist[groups[:, None] == groups[None, :]] = np.inf
+    X = y  # only len() is used below
 
     D = np.stack([letter_kmean(dist[i], y, letters, k) for i in range(len(X))])
     true_idx = np.array([letters.index(l) for l in y])

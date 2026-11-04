@@ -13,7 +13,29 @@ from src import config, handwriting
 from src.comparator import calibrate
 
 
+ACTION_MODEL_PATH = config.MODELS_DIR / "action_model.npz"
+
+
+def train_actions():
+    """Deployed action model: library = all clips; T / d_none calibrated leave-one-signer-out on them."""
+    from src.dtw import calibrate, library_dist
+    from src.extract_actions import ACTIONS_LIBRARY_PATH
+    if not ACTIONS_LIBRARY_PATH.exists():
+        print("No action library (python -m src.extract_actions) - skipping actions.")
+        return
+    lib = np.load(ACTIONS_LIBRARY_PATH)
+    S, Sm, y, signer = lib["S"], lib["Sm"], lib["y"], lib["signer"]
+    if len(set(signer.tolist())) < 2:
+        print("Action model needs clips from at least 2 signers - skipping actions.")
+        return
+    T, d_none = calibrate(library_dist(S, Sm), y, signer)
+    config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    np.savez(ACTION_MODEL_PATH, S=S, Sm=Sm, y=y, signer=signer, T=T, d_none=d_none, k=config.K_NEAREST)
+    print(f"Action model: {len(y)} clips {dict(Counter(y.tolist()))}, T={T:.4f} d_none={d_none:.3f}")
+
+
 def main():
+    train_actions()
     if not config.LIBRARY_PATH.exists():
         print("No sign library yet. Run: python -m src.extract")
         return 1
