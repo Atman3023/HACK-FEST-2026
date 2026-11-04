@@ -3,6 +3,8 @@ mediapipe==0.10.14
 # mediapipe depends on opencv-contrib-python; do NOT also install opencv-python (two cv2 builds clash)
 opencv-contrib-python==4.10.0.84
 numpy==1.26.4
+# pyarrow>=18 needs numpy 2 (breaks the drawing canvas); 17 works with numpy 1.26
+pyarrow==17.0.0
 # streamlit-drawable-canvas breaks on streamlit>=1.40
 streamlit==1.39.0
 streamlit-drawable-canvas==0.9.3
