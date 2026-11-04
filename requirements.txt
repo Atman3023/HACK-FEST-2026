@@ -1,0 +1,11 @@
+# Python 3.12 required (MediaPipe supports 3.10-3.12)
+mediapipe==0.10.14
+# mediapipe depends on opencv-contrib-python; do NOT also install opencv-python (two cv2 builds clash)
+opencv-contrib-python==4.10.0.84
+numpy==1.26.4
+# streamlit-drawable-canvas breaks on streamlit>=1.40
+streamlit==1.39.0
+streamlit-drawable-canvas==0.9.3
+pillow==10.4.0
+pyttsx3==2.98
+scikit-learn==1.5.2
