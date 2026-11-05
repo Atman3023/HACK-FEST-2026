@@ -28,7 +28,7 @@ def main(actions_dir=None, out_path=None):
         print(f"No clips in {actions_dir}. Expected data/actions/<CLASS>/<signer>_<n>.mp4")
         return 1
 
-    S, Sm, y, signers, files, usable = [], [], [], [], [], []
+    S, Sm, y, signers, files = [], [], [], [], []
     stats = defaultdict(list)
     for i, (cls, path) in enumerate(clips, 1):
         frames = read_video(path)

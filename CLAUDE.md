@@ -1,7 +1,8 @@
 # SignBridge — CLAUDE.md
 
 Hospital-reception communication assistant for **Indian Sign Language (ISL)**, built for a hackathon.
-**Deadline: 9:30pm (2026-11-04).** Keep everything simple and demo-quality. Prefer working over clever.
+**Prototype showcase: afternoon of 2026-11-05.** (The 2026-11-04 night deadline was only for the idea PPT —
+already submitted.) Keep everything simple and demo-quality. Prefer working over clever. Fix and verify; no new features.
 
 ## Hard rules
 - Vocabulary is **exactly 6 signs**: letters **A, B, C** and actions **BLOOD_PRESSURE, FEVER, STOMACH_ACHE**.
@@ -132,18 +133,21 @@ assets/isl/actions/         # BLOOD_PRESSURE.mp4, FEVER.mp4, STOMACH_ACHE.mp4 (H
 models/  reports/           # generated
 ```
 
-## Build order
-**Letters (first — must work end to end before actions):**
-1. Done: venv, requirements, letter modules, app pages smoke-tested on synthetic data.
-2. Add `data/raw/`, run extract → check detection rate per letter.
-3. train → evaluate → first real letter accuracy.
-4. `assets/isl/{A,B,C}.png`; live webcam test of "Spell a letter"; handwriting test set.
+## Status (2026-11-05, before the showcase)
+**Built and tested (code paths verified on synthetic data + real webcam test clips):**
+- Environment: `.venv` (Python 3.12), pinned requirements, `.vscode/settings.json` points at `.venv`.
+- Letters: `extract.py`, `comparator.py`, `train.py`, `evaluate.py`; Service 1 "Spell a letter".
+- Handwriting: multi-font/thickness templates (97.7% leave-one-font-out on templates); Service 2 Draw/Type.
+- Actions: `scripts/record_actions.py`, `action_features.py`, `extract_actions.py`, `dtw.py`, action
+  training + leave-one-signer-out evaluation + PNG charts; Service 1 "Show an action" with landmark
+  preview; Service 2 action buttons + fuzzy typed matching (`vocab.py`).
+- App shows clear "not built yet" messages when a library/model is missing.
 
-**Actions (after letters work):**
-5. `vocab.py` + Service 2 action typing/buttons + reference clips — cheapest visible win, no recognition needed.
-6. `capture.py` in the app: countdown, live preview, 3 s record; verify webcam hand-off with `camera_input`.
-7. `action_features.py` + `extract_actions.py`; check Holistic detection rates on `data/actions`.
-8. `dtw.py` + calibration + leave-one-signer-out evaluation → action accuracy.
-9. Service 1 "Show an action" sub-mode wired to the DTW comparator + decision logic.
-10. Polish, README (scope + non-diagnostic framing), final accuracy report.
-**Cut line if time runs out:** keep step 5 (text → action clip) and drop live action recognition.
+**Left (needs data — no real accuracy numbers exist yet):**
+1. Letter images in `data/raw/<A|B|C>/` → `python -m src.extract`.
+2. Action clips via `scripts/record_actions.py` (≥ 2 signers, ~5 clips per class incl. NONE)
+   → `python -m src.extract_actions`.
+3. `python -m src.train` → `python -m src.evaluate` → real numbers in `reports/accuracy.md`.
+4. Reference media: `assets/isl/{A,B,C}.png`, `assets/isl/actions/*.mp4` (H.264).
+5. Optional: `data/handwriting_test/` drawings for handwriting accuracy.
+6. README: update scope to the 6 signs and the non-diagnostic framing.

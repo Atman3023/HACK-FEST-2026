@@ -76,7 +76,7 @@ def show_final(cls, key, speech):
     else:
         st.video(str(media), loop=True, autoplay=True, muted=True)
         st.caption(f"ISL sign: {vocab.DISPLAY[cls]}")
-    if st.button(f"🔊 Speak", key=f"speak_{key}"):
+    if st.button("🔊 Speak", key=f"speak_{key}"):
         if not tts.speak(speech):
             st.warning("Text-to-speech is unavailable on this machine.")
 
