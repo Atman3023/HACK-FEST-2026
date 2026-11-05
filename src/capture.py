@@ -22,19 +22,38 @@ def _overlay(frame, big=None, status=None):
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 
+BUSY_MSG = ("The webcam is busy (another app or the browser camera may still be using it). "
+            "Close other camera apps, or reload the page, then press Record again.")
+
+
+def _open_working_camera(placeholder, camera, attempts=4, warmup=1.0, retry_wait=1.0):
+    """Open the webcam and make sure it delivers REAL frames. When another process (e.g. the browser
+    camera of "Spell a letter") still holds the device, OpenCV 'opens' it but returns black frames.
+    The browser releases the camera asynchronously after a mode switch, so retry a few times."""
+    for attempt in range(attempts):
+        cap = cv2.VideoCapture(camera, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            good, t0 = 0, time.time()
+            while time.time() - t0 < warmup:  # also lets exposure settle
+                ok, frame = cap.read()
+                if ok and frame is not None and frame.mean() > 8:  # busy device -> all-black frames
+                    good += 1
+                    placeholder.image(_overlay(frame, status="Get into position..."), use_column_width=True)
+            if good >= 5:
+                return cap
+        cap.release()
+        if attempt < attempts - 1:
+            placeholder.info("Waiting for the webcam...")
+            time.sleep(retry_wait)
+    raise RuntimeError(BUSY_MSG)
+
+
 def record_clip(placeholder, seconds=config.CLIP_SECONDS, countdown=config.COUNTDOWN_SECONDS, camera=0):
     """Shows live frames in `placeholder` (an st.empty()). -> (frames_bgr, fps) or raises RuntimeError."""
-    cap = cv2.VideoCapture(camera, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        raise RuntimeError("Could not open the webcam. Close other apps (or the letter camera) and try again.")
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap = _open_working_camera(placeholder, camera)
     try:
-        t0 = time.time()
-        while time.time() - t0 < 1.0:  # exposure settles
-            ok, frame = cap.read()
-            if ok:
-                placeholder.image(_overlay(frame, status="Get into position..."), use_column_width=True)
         t0 = time.time()
         while (left := countdown - (time.time() - t0)) > 0:
             ok, frame = cap.read()
@@ -51,6 +70,8 @@ def record_clip(placeholder, seconds=config.CLIP_SECONDS, countdown=config.COUNT
             if n % 2 == 0:  # updating every frame slows the capture down
                 placeholder.image(_overlay(frame, status=f"REC  {seconds - elapsed:.1f}s"),
                                   use_column_width=True)
+        if len(frames) < 5 * seconds:  # well under 5 fps means the camera stalled
+            raise RuntimeError(BUSY_MSG)
         return frames, len(frames) / max(time.time() - t0, 1e-6)
     finally:
         cap.release()
