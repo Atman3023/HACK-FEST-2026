@@ -57,3 +57,8 @@ def label_from_path(path: Path, root: Path):
 
 def iter_images(root: Path):
     return sorted(p for p in root.rglob("*") if p.suffix.lower() in IMAGE_EXTS)
+
+# Running on Streamlit Community Cloud (code is checked out under /mount/src). There the camera is the
+# visitor's browser camera, and data collection is off (the raw clips are not in the repo).
+import os as _os  # noqa: E402
+IS_CLOUD = str(ROOT).startswith("/mount/src") or _os.environ.get("SIGNBRIDGE_CLOUD") == "1"

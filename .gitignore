@@ -27,9 +27,8 @@ data/sources/
 # Segment contact sheets = frames of the source videos (faces, YouTube content): local review only
 reports/segments/
 
-# models/: only the landmark-number libraries are committed. The handwriting model holds rendered font
-# bitmaps and is rebuilt automatically by the app when missing.
-models/handwriting_model.npz
+# models/ IS committed (the deployed app needs it): landmark libraries + the handwriting templates
+# (rendered A/B/C glyphs; they cannot be rebuilt on Linux because they come from Windows fonts).
 
 # Reports (accuracy.md/.json + charts) ARE committed — do not ignore reports/
 

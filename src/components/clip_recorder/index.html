@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- SignBridge browser clip recorder (Streamlit component, no build step).
+     Live mirrored preview -> 3-2-1 countdown -> captures JPEG frames for N seconds from the visitor's
+     camera -> returns {id, frames: [dataURL...], duration} to Python. Frames are NOT mirrored. -->
+<style>
+  :root { --ink: #1f2933; --muted: #52606d; --accent: #ff4b4b; }
+  body { margin: 0; font-family: "Source Sans Pro", system-ui, sans-serif; color: var(--ink); background: transparent; }
+  .wrap { position: relative; width: 100%; max-width: 640px; }
+  video { width: 100%; display: block; transform: scaleX(-1); border-radius: 10px; background: #111; min-height: 120px; }
+  #ov { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        font-size: 120px; font-weight: 800; color: #ffdc00; text-shadow: 0 0 14px #000; pointer-events: none; }
+  #rec { margin-top: 10px; width: 100%; max-width: 640px; padding: 10px 14px; font-size: 17px; font-weight: 600;
+         color: #fff; background: var(--accent); border: 0; border-radius: 8px; cursor: pointer; }
+  #rec:disabled { opacity: .55; cursor: default; }
+  #st { display: block; margin-top: 6px; font-size: 14px; color: var(--muted); min-height: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap"><video id="v" autoplay playsinline muted></video><div id="ov"></div></div>
+<button id="rec" disabled>🎬 Record action</button>
+<span id="st">Starting camera…</span>
+<script>
+  const v = document.getElementById("v"), ov = document.getElementById("ov");
+  const rec = document.getElementById("rec"), st = document.getElementById("st");
+  let args = { seconds: 3, countdown: 3, fps: 15, width: 480 };
+  let stream = null, busy = false;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const send = (type, data) => window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type }, data || {}), "*");
+  const height = () => send("streamlit:setFrameHeight", { height: document.body.scrollHeight + 6 });
+
+  window.addEventListener("message", e => {
+    if (e.data && e.data.type === "streamlit:render") { Object.assign(args, e.data.args || {}); height(); }
+  });
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+      v.srcObject = stream;
+      await v.play();
+      rec.disabled = false;
+      st.textContent = "Camera ready. Head, shoulders and upper body in view, then press Record.";
+    } catch (err) {
+      st.textContent = "Camera unavailable (" + err.name + "). Allow camera access for this site and reload.";
+    }
+    height();
+  }
+  v.addEventListener("loadedmetadata", height);
+
+  rec.onclick = async () => {
+    if (busy || !stream || !v.videoWidth) return;
+    busy = true; rec.disabled = true;
+    for (let i = args.countdown; i > 0; i--) { ov.textContent = i; st.textContent = "Get ready…"; await sleep(1000); }
+    ov.textContent = "";
+    const c = document.createElement("canvas");
+    const s = Math.min(1, args.width / v.videoWidth);
+    c.width = Math.round(v.videoWidth * s); c.height = Math.round(v.videoHeight * s);
+    const ctx = c.getContext("2d");
+    const frames = [], t0 = performance.now(), dt = 1000 / args.fps;
+    let next = t0;
+    while (performance.now() - t0 < args.seconds * 1000) {
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      frames.push(c.toDataURL("image/jpeg", 0.8));
+      st.textContent = "● REC " + Math.max(0, args.seconds - (performance.now() - t0) / 1000).toFixed(1) + " s";
+      next += dt;
+      await sleep(Math.max(0, next - performance.now()));
+    }
+    const duration = (performance.now() - t0) / 1000;
+    st.textContent = "Recorded " + frames.length + " frames — analysing…";
+    send("streamlit:setComponentValue", { value: { id: Date.now(), frames, duration }, dataType: "json" });
+    await sleep(1500);
+    st.textContent = "Press Record to sign again.";
+    busy = false; rec.disabled = false;
+  };
+
+  send("streamlit:componentReady", { apiVersion: 1 });
+  startCamera();
+</script>
+</body>
+</html>

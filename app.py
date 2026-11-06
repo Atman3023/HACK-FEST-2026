@@ -11,6 +11,7 @@ import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 
 from src import config, handwriting, tts, vocab
+from src.browser_capture import clip_recorder, decode  # registers the browser recorder component
 from src.comparator import Comparator
 from src.decision import decide
 from src.extract import HandDetector, draw_landmarks, features
@@ -55,6 +56,28 @@ def detector():
     return HandDetector()
 
 
+@st.cache_data(show_spinner=False, max_entries=64)
+def speech_wav(text):
+    return tts.synthesize(text)
+
+
+def play_speech(key, speech):
+    """Speak in the BROWSER: offline WAV via st.audio(autoplay). Plays automatically once per result;
+    "Speak again" plays it again (a padded copy, so the browser treats it as a new clip)."""
+    wav = speech_wav(speech)
+    if wav is None:
+        st.caption("(Speech unavailable: no offline text-to-speech engine on this machine.)")
+        return
+    n = st.session_state.get(f"again_{key}", 0)
+    if st.button("🔊 Speak again", key=f"speak_{key}"):
+        n += 1
+        st.session_state[f"again_{key}"] = n
+    spoken = st.session_state.setdefault("spoken", set())
+    first = key not in spoken
+    spoken.add(key)
+    st.audio(tts.with_padding(wav, n), format="audio/wav", autoplay=first or n > 0)
+
+
 def report():
     try:
         return json.loads(config.REPORT_JSON.read_text())
@@ -93,14 +116,7 @@ def show_final(cls, key, speech):
     else:
         st.video(str(media), loop=True, autoplay=True, muted=True)
         st.caption(f"ISL sign: {vocab.DISPLAY[cls]} (reference clip)")
-    # speak automatically once per result; reruns of the same result stay quiet
-    spoken = st.session_state.setdefault("spoken", set())
-    if key not in spoken:
-        spoken.add(key)
-        if not tts.speak(speech):
-            st.warning("Text-to-speech is unavailable on this machine.")
-    if st.button("🔊 Speak again", key=f"speak_{key}"):
-        tts.speak(speech)
+    play_speech(key, speech)
 
 
 def speech_for(cls, visitor):
@@ -207,15 +223,6 @@ def letter_mode():
     show_decision(result["confidences"], result["out_of_range"], key)
 
 
-def speak_once(key, speech):
-    """Speak automatically once per result; reruns of the same result stay quiet."""
-    spoken = st.session_state.setdefault("spoken", set())
-    if key not in spoken:
-        spoken.add(key)
-        if not tts.speak(speech):
-            st.warning("Text-to-speech is unavailable on this machine.")
-
-
 def big_text(text, color="#1b5e20", sub=None):
     st.markdown(f"""<div style="font-size:3.2rem;font-weight:800;line-height:1.15;color:{color};
                 margin:12px 0 4px 0">{text}</div>""", unsafe_allow_html=True)
@@ -231,9 +238,7 @@ def action_result(r, key):
     if final:
         speech = speech_for(final, True)
         big_text(vocab.DISPLAY[final], sub="Visitor indicates this sign" + (" (confirmed)" if confirmed else ""))
-        speak_once(key + final, speech)
-        if st.button("🔊 Speak again", key=f"speak_{key}"):
-            tts.speak(speech)
+        play_speech(key + final, speech)
     elif d.band == "retry" and (r["out_of_range"] or d.top == "NONE"):
         big_text("Not a known sign", "#b71c1c", sub="Please try again." +
                  (f" Reason: {r['reject_reason']}." if r.get("reject_reason") else ""))
@@ -271,6 +276,10 @@ def action_debug(clip, comp):
 def collect_panel(clip):
     """Save the last recording into the library, rebuild the library, show clip counts."""
     from src import collect
+    if config.IS_CLOUD or not config.ACTIONS_DIR.exists():
+        st.caption("Adding recordings to the library is available when the app runs locally with the "
+                   "data/actions folder (raw clips are not part of the online deployment).")
+        return
     with st.expander("📼 Add this recording to the library", expanded=False):
         if clip and clip.get("frames"):
             signer = st.text_input("Signer name", key="collect_signer", placeholder="e.g. atman")
@@ -304,33 +313,55 @@ def collect_panel(clip):
             st.code(log[-3000:] or "(no output)")
 
 
-def action_mode():
+def analyse_clip(frames, fps, comp, status):
     from src.action_features import mirror, process_frames, to_gif
-    from src.capture import record_clip
+    status.info("Analysing the clip...")
+    seq, stats, drawn = process_frames(frames, annotate=True)
+    status.empty()
+    result = None
+    if seq is not None and comp is not None:
+        result = comp.predict(seq, mirror(seq))
+    st.session_state.action_clip = {
+        "key": hashlib.md5(frames[len(frames) // 2].tobytes()).hexdigest()[:10],
+        "gif": to_gif(drawn, fps, width=320, step=max(1, round(fps / 10))), "stats": stats,
+        "usable": seq is not None, "result": result, "frames": frames, "fps": fps}
+
+
+BROWSER_CAM, LOCAL_CAM = "Browser camera", "Laptop webcam (OpenCV, local only)"
+
+
+def action_mode():
     st.write("Sit so your **head, shoulders and upper body** are visible. After a 3-2-1 countdown, "
              f"perform the sign for {config.CLIP_SECONDS:.0f} seconds.")
     comp = action_comparator()
     if comp is None:
         st.info("Action library not built yet. Record and save clips below, then press **Rebuild library**. "
                 "You can still record to check the landmark tracking.")
-    live = st.empty()
-    if st.button("🎬 Record action", type="primary", use_container_width=True):
-        try:
-            frames, fps = record_clip(live)
-        except RuntimeError as e:
-            live.empty()
-            st.error(str(e))
-            return
-        live.info("Analysing the clip...")
-        seq, stats, drawn = process_frames(frames, annotate=True)
-        live.empty()
-        result = None
-        if seq is not None and comp is not None:
-            result = comp.predict(seq, mirror(seq))
-        st.session_state.action_clip = {
-            "key": hashlib.md5(frames[len(frames) // 2].tobytes()).hexdigest()[:10],
-            "gif": to_gif(drawn, fps, width=320, step=3), "stats": stats, "usable": seq is not None,
-            "result": result, "frames": frames, "fps": fps}
+    source = BROWSER_CAM
+    if not config.IS_CLOUD:
+        source = st.radio("Camera", [BROWSER_CAM, LOCAL_CAM], horizontal=True, key="cam_source",
+                          help="The browser camera works everywhere (also online). The OpenCV webcam path "
+                               "is a fallback for running on the laptop itself.")
+    status = st.empty()
+    if source == BROWSER_CAM:
+        value = clip_recorder()
+        if value and value.get("id") != st.session_state.get("last_clip_id"):
+            st.session_state.last_clip_id = value["id"]
+            frames, fps = decode(value)
+            if len(frames) < 5:
+                st.error("The browser sent too few frames. Please record again.")
+            else:
+                analyse_clip(frames, fps, comp, status)
+    else:
+        from src.capture import record_clip
+        if st.button("🎬 Record action", type="primary", use_container_width=True):
+            try:
+                frames, fps = record_clip(status)
+            except RuntimeError as e:
+                status.empty()
+                st.error(str(e))
+                return
+            analyse_clip(frames, fps, comp, status)
 
     clip = st.session_state.get("action_clip")
     if clip:
@@ -347,7 +378,8 @@ def action_mode():
 def sign_page():
     st.header("Sign → Text / Speech")
     st.caption(SCOPE)
-    # Only one mode renders per run, so the browser camera and OpenCV never hold the webcam together.
+    # Only one mode renders per run, so the browser camera and the local OpenCV fallback never hold the
+    # webcam together.
     mode = st.radio("Mode", ["✋ Spell a letter", "🎬 Show an action"], horizontal=True,
                     label_visibility="collapsed")
     if mode.endswith("letter"):
