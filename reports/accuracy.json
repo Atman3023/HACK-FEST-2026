@@ -66,10 +66,10 @@
     ],
     "has_none_clips": false,
     "n": 11,
-    "top1_accuracy": 0.6363636363636364,
+    "top1_accuracy": 0.36363636363636365,
     "per_class_accuracy": {
-      "BLOOD_PRESSURE": 0.4,
-      "FEVER": 0.8333333333333334,
+      "BLOOD_PRESSURE": 0.2,
+      "FEVER": 0.5,
       "STOMACH_ACHE": null,
       "NONE": null
     },
@@ -87,16 +87,16 @@
     ],
     "confusion_matrix": [
       [
-        2,
         1,
-        1,
-        1
+        0,
+        0,
+        4
       ],
       [
         1,
-        5,
+        3,
         0,
-        0
+        2
       ],
       [
         0,
@@ -112,19 +112,19 @@
       ]
     ],
     "bands": {
-      "retry": 7,
-      "confirm": 4,
+      "retry": 10,
+      "confirm": 1,
       "final": 0
     },
     "per_class_bands": {
       "BLOOD_PRESSURE": {
-        "retry": 4,
-        "confirm": 1,
+        "retry": 5,
+        "confirm": 0,
         "final": 0
       },
       "FEVER": {
-        "retry": 3,
-        "confirm": 3,
+        "retry": 5,
+        "confirm": 1,
         "final": 0
       },
       "STOMACH_ACHE": {
@@ -141,6 +141,11 @@
     "final_band_precision": null,
     "confirm_band_top2_hit": 1.0,
     "unmeasurable_n": 5,
+    "ranked_per_class": {
+      "BLOOD_PRESSURE": 0.4,
+      "FEVER": 0.8333333333333334
+    },
+    "ranked_top1": 0.6363636363636364,
     "folds": {
       "atman": {
         "n": 3,
@@ -148,8 +153,10 @@
           "BLOOD_PRESSURE"
         ],
         "top1_accuracy": 0.0,
-        "T": 0.029400480643347108,
-        "d_none": 1.550885965125635
+        "T": 0.030129477247269904,
+        "d_half": 0.9403439089655876,
+        "calib_correct": 6,
+        "calib_queries": 10
       },
       "p1": {
         "n": 3,
@@ -157,9 +164,11 @@
           "BLOOD_PRESSURE",
           "FEVER"
         ],
-        "top1_accuracy": 1.0,
+        "top1_accuracy": 0.0,
         "T": 10.0,
-        "d_none": 3.426277458406985
+        "d_half": 0.0,
+        "calib_correct": 0,
+        "calib_queries": 10
       },
       "p2": {
         "n": 1,
@@ -167,8 +176,10 @@
           "BLOOD_PRESSURE"
         ],
         "top1_accuracy": 1.0,
-        "T": 0.3501900461431713,
-        "d_none": 2.603438393492252
+        "T": 0.41864772882899515,
+        "d_half": 0.9403439089655876,
+        "calib_correct": 4,
+        "calib_queries": 12
       },
       "yt_fever": {
         "n": 4,
@@ -176,33 +187,37 @@
           "FEVER"
         ],
         "top1_accuracy": 0.75,
-        "T": 0.07048574036451903,
-        "d_none": 2.6211199507117273
+        "T": 0.13111339374215644,
+        "d_half": 0.9989239200949669,
+        "calib_correct": 4,
+        "calib_queries": 10
       },
       "yt_sdlj": {
         "n": 0,
         "classes": [],
         "top1_accuracy": null,
-        "T": 0.12626001098748565,
-        "d_none": 2.5999020820483567
+        "T": 0.30718143012686966,
+        "d_half": 0.9403439089655876,
+        "calib_correct": 6,
+        "calib_queries": 10
       }
     },
     "none_false_accept": null,
-    "none_false_reject": 0.09090909090909091,
+    "none_false_reject": 0.5454545454545454,
     "top_confusions": [
-      {
-        "true": "FEVER",
-        "predicted": "BLOOD_PRESSURE",
-        "count": 1
-      },
-      {
-        "true": "BLOOD_PRESSURE",
-        "predicted": "STOMACH_ACHE",
-        "count": 1
-      },
       {
         "true": "BLOOD_PRESSURE",
         "predicted": "NONE",
+        "count": 4
+      },
+      {
+        "true": "FEVER",
+        "predicted": "NONE",
+        "count": 2
+      },
+      {
+        "true": "FEVER",
+        "predicted": "BLOOD_PRESSURE",
         "count": 1
       }
     ]

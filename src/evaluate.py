@@ -80,15 +80,20 @@ def eval_letters():
 
 # ---------- actions ----------
 def eval_actions(library_path=None):
-    from src.dtw import ActionComparator, calibrate, calibrate_min_motion, library_dist, motion_extent
+    from src.dtw import (ActionComparator, calibrate, calibrate_min_motion, library_dist, motion_extent,
+                         select_library)
     from src.extract_actions import ACTIONS_LIBRARY_PATH
+    from src.train import load_action_library
     path = library_path or ACTIONS_LIBRARY_PATH
     if not path.exists():
         return None
-    lib = np.load(path)
+    lib, meta = load_action_library(path)
     S, Sm, y, signer = lib["S"], lib["Sm"], lib["y"], lib["signer"]
-    # augmented copies are training-only: never a test clip (older libraries have no flag -> all original)
-    aug = lib["aug"] if "aug" in lib.files else np.zeros(len(y), bool)
+    # augmented copies are training-only: never a test clip
+    aug, parent = meta["aug"], meta["parent"]
+    # training folds use the same balanced library as the app (caps per source video, no mirror copies);
+    # every original clip of the held-out signer is tested
+    in_lib = select_library(lib["files"], aug, parent, meta["source"])
 
     # Holistic detection rate over ALL clips (including unusable ones)
     sc, usable = lib["stat_cls"], lib["stat_usable"]
@@ -114,21 +119,22 @@ def eval_actions(library_path=None):
     dist = library_dist(S, Sm)   # (N, N): row = query clip (min over its mirror), col = library clip
     preds, folds = [], {}
     for s in out["signers"]:
-        tr, te = np.where(signer != s)[0], np.where((signer == s) & ~aug)[0]
+        tr, te = np.where((signer != s) & in_lib)[0], np.where((signer == s) & ~aug)[0]
         if len(te) == 0:
             continue
         try:   # calibration on the training signers only (leave-one-signer-out inside them)
-            T, d_none = calibrate(dist[np.ix_(tr, tr)], y[tr], signer[tr])
+            params = calibrate(dist[np.ix_(tr, tr)], y[tr], signer[tr], parent[tr], query_mask=~aug[tr])
         except ValueError as e:
             folds[s] = {"n": int(len(te)), "skipped": str(e)}
             continue
         tro = tr[~aug[tr]]
-        comp = ActionComparator(S[tr], y[tr], T, d_none, min_motion=calibrate_min_motion(S[tro], y[tro]))
+        comp = ActionComparator(S[tr], y[tr], parent[tr], params, min_motion=calibrate_min_motion(S[tro], y[tro]))
         fold = [(y[i], comp.predict_from_dist(dist[i, tr], motion_extent(S[i]))) for i in te]
         preds += fold
         fs = score([p for p in fold if p[0] in out["measurable"]], ACTION_CLASSES, reject_label="NONE")
         folds[s] = {"n": fs["n"], "classes": sorted(set(y[te].tolist()) & set(out["measurable"])),
-                    "top1_accuracy": fs["top1_accuracy"], "T": T, "d_none": d_none}
+                    "top1_accuracy": fs["top1_accuracy"], "T": params["T"], "d_half": params["d_half"],
+                    "calib_correct": params["n_correct"], "calib_queries": params["n_queries"]}
     # Headline numbers only over classes with >= 2 sources: a class with one source never has a
     # same-class training clip when its source is held out, so its "accuracy" would be meaningless.
     measured = [p for p in preds if p[0] in out["measurable"]]
@@ -136,6 +142,12 @@ def eval_actions(library_path=None):
     out["per_class_accuracy"] = {c: (v if c in out["measurable"] else None)
                                  for c, v in out["per_class_accuracy"].items()}
     out["unmeasurable_n"] = sum(p[0] in out["unmeasurable"] for p in preds)
+    # ranking only: the closest action class, before the confidence / rejection decision
+    acts = list(ACTION_CLASSES[:-1])
+    ranked = [(t, acts[int(np.argmin([r["distances"][a] for a in acts]))]) for t, r in measured]
+    out["ranked_per_class"] = {c: (float(np.mean([p == t for t, p in ranked if t == c]))
+                                   if any(t == c for t, _ in ranked) else None) for c in out["measurable"]}
+    out["ranked_top1"] = float(np.mean([p == t for t, p in ranked])) if ranked else None
     cm = np.array(out["confusion_matrix"])
     ni = ACTION_CLASSES.index("NONE")
     none_n, act_n = cm[ni].sum(), cm[:ni].sum()
@@ -229,8 +241,10 @@ def actions_md(r, files):
     lines += ["### Held-out accuracy (leave-one-signer-out)", "",
               "Each signer is held out in turn and tested against the other signers' clips. Every source "
               "video belongs to one signer, so no segment or augmented copy of a test video is ever in "
-              "training; augmented copies are training-only and never used as test clips. T, the "
-              "rejection distance and the minimum-motion gate are calibrated on the training signers only.", "",
+              "training; augmented copies are training-only and never used as test clips. Training folds use "
+              "the balanced library (at most 3 segments per source video, 2 time-window copies each, no mirror "
+              "copies). Confidence = ranking x absolute-distance curve; T, the curve and the minimum-motion "
+              "gate are calibrated on the training signers only.", "",
               "| Class | Sources (signers) | Held-out accuracy |", "|---|---|---|"]
     for c in ACTION_CLASSES:
         if c not in src:
@@ -245,21 +259,31 @@ def actions_md(r, files):
                   f"The clips are still in the app's library, but they are left out of the numbers below. "
                   "Record the sign by a second person to measure it.", ""]
     if not r["has_none_clips"]:
-        lines += ['> **No NONE clips.** Rejection relies only on the calibrated DTW threshold (an input '
-                  'farther than it from every action shows "Not a known sign"). Record non-sign '
-                  'movements into `data/actions/NONE/` to measure and improve rejection.', ""]
+        lines += ['> **No NONE clips.** "Not a known sign" relies only on the calibrated distance curve '
+                  '(a best match far from the typical same-class distance) and the motion gate. Record '
+                  'non-sign movements into `data/actions/NONE/` to measure and improve rejection.', ""]
     if r["n"] == 0:
         return lines + ["_No measurable test clips._", ""]
     lines += [f"Numbers below cover the measurable classes only ({', '.join(r['measurable'])}). "
               "Confidence bands: retry < 60%, confirm top-2 60-85%, final >= 85%.", ""]
+    lines += [f"- **Ranking only** (closest class, before confidence/rejection): {pct(r['ranked_top1'])} - "
+              + ", ".join(f"{c} {pct(v)}" for c, v in r["ranked_per_class"].items()),
+              "- **Decision** (what the app shows, with confidence bands and rejection):", ""]
     lines += metrics_md(r)
+    weak = [s for s, f in r["folds"].items() if f.get("calib_correct", 99) < 3 and "skipped" not in f]
+    if weak:
+        lines += [f"> **Absolute-distance curve not estimable in fold(s) {', '.join(weak)}:** with that signer "
+                  "held out, fewer than 3 training clips have a correct best match from another signer, so the "
+                  "curve learns that no distance is trustworthy and the fold rejects its test clips. More "
+                  "signers per class fix this.", ""]
     if r["has_none_clips"]:
         lines += [f"- NONE false accept (NONE clip shown as an action): {pct(r['none_false_accept'])}"]
     lines += [f"- Actions rejected as not a known sign: {pct(r['none_false_reject'])}",
               "- Per held-out signer (measurable classes only): " + ", ".join(
                   f"{s} skipped ({f['skipped']})" if "skipped" in f
                   else f"{s} not measurable (only one-source classes)" if f["n"] == 0
-                  else f"{s} {pct(f['top1_accuracy'])} (n={f['n']}: {', '.join(f['classes'])})"
+                  else f"{s} {pct(f['top1_accuracy'])} (n={f['n']}: {', '.join(f['classes'])}; "
+                       f"calibration: {f['calib_correct']}/{f['calib_queries']} correct best matches)"
                   for s, f in r["folds"].items()), ""]
     if r["top_confusions"]:
         lines += ["Most frequent confusions: " + "; ".join(

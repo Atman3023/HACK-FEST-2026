@@ -18,6 +18,8 @@ FINAL_AT = 0.85      # >= 85% -> final answer; in between -> confirm top 2
 
 # Comparator
 K_NEAREST = 3                 # average the k nearest library samples per letter
+ACTION_K_NEAREST = 1          # actions: nearest SEGMENT per class (copies of a segment count once). With 1-2
+                              # segments per class per signer, averaging 3 mixes in other signers' versions.
 HAND_COUNT_WEIGHT = 3.0       # feature that keeps 1-hand and 2-hand signs apart
 OUT_OF_RANGE_FACTOR = 1.5     # best distance > factor * p99(train true-class distance) -> "not A/B/C"
 

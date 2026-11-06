@@ -37,8 +37,12 @@ def action_comparator():
         return None
     from src.dtw import ActionComparator
     m = np.load(ACTION_MODEL_PATH)
-    min_motion = float(m["min_motion"]) if "min_motion" in m.files else 0.0
-    return ActionComparator(m["S"], m["y"], float(m["T"]), float(m["d_none"]), int(m["k"]), min_motion)
+    if "fit_x" not in m.files:   # model from an older build
+        return None
+    params = {"T": float(m["T"]), "fit_x": m["fit_x"], "fit_y": m["fit_y"]}
+    comp = ActionComparator(m["S"], m["y"], m["parent"], params, int(m["k"]), float(m["min_motion"]))
+    comp.meta = {"files": m["files"], "signer": m["signer"], "source": m["source"], "aug": m["aug"]}
+    return comp
 
 
 @st.cache_resource
@@ -203,6 +207,103 @@ def letter_mode():
     show_decision(result["confidences"], result["out_of_range"], key)
 
 
+def speak_once(key, speech):
+    """Speak automatically once per result; reruns of the same result stay quiet."""
+    spoken = st.session_state.setdefault("spoken", set())
+    if key not in spoken:
+        spoken.add(key)
+        if not tts.speak(speech):
+            st.warning("Text-to-speech is unavailable on this machine.")
+
+
+def big_text(text, color="#1b5e20", sub=None):
+    st.markdown(f"""<div style="font-size:3.2rem;font-weight:800;line-height:1.15;color:{color};
+                margin:12px 0 4px 0">{text}</div>""", unsafe_allow_html=True)
+    if sub:
+        st.caption(sub)
+
+
+def action_result(r, key):
+    """Service 1 output: only the result, as large text. Final answers are spoken automatically."""
+    confirmed = st.session_state.get(f"confirmed_{key}")
+    d = decide(r["confidences"], r["out_of_range"])
+    final = confirmed or (d.top if d.band == "final" else None)
+    if final:
+        speech = speech_for(final, True)
+        big_text(vocab.DISPLAY[final], sub="Visitor indicates this sign" + (" (confirmed)" if confirmed else ""))
+        speak_once(key + final, speech)
+        if st.button("🔊 Speak again", key=f"speak_{key}"):
+            tts.speak(speech)
+    elif d.band == "retry" and (r["out_of_range"] or d.top == "NONE"):
+        big_text("Not a known sign", "#b71c1c", sub="Please try again." +
+                 (f" Reason: {r['reject_reason']}." if r.get("reject_reason") else ""))
+    elif d.band == "retry":
+        big_text("Please try again", "#e65100", sub="Low confidence.")
+    else:
+        big_text("Did you mean…?", "#0d47a1")
+        cols = st.columns(2)
+        for col, (cls, conf) in zip(cols, d.ranked[:2]):
+            if col.button(vocab.DISPLAY[cls], key=f"pick_{key}_{cls}", use_container_width=True):
+                st.session_state[f"confirmed_{key}"] = cls
+                st.rerun()
+
+
+def action_debug(clip, comp):
+    r, s = clip["result"], clip["stats"]
+    with st.expander("Debug", expanded=False):
+        st.image(clip["gif"], caption=f"Recorded clip with landmarks — body in {s['pose_rate']:.0%}, "
+                                      f"hands in {s['hand_rate']:.0%} of frames", width=320)
+        if r is None:
+            return
+        confidence_bars(r["confidences"], "Confidence (ranking x distance)")
+        st.caption("Class distance (nearest segment): " + ", ".join(
+            f"{vocab.DISPLAY[c]} {v:.2f}" for c, v in r["distances"].items() if np.isfinite(v))
+            + (f" · hand motion {r['motion']:.2f} (min {comp.min_motion:.2f})" if r.get("motion") is not None else ""))
+        d = r["dist_all"]
+        order = np.argsort(d)[:5]
+        m = comp.meta
+        st.markdown("**5 nearest library segments**")
+        st.table([{"class": str(comp.y[i]), "signer": str(m["signer"][i]), "source video": str(m["source"][i]),
+                   "clip": str(m["files"][i]) + (" (augmented)" if m["aug"][i] else ""),
+                   "DTW distance": f"{d[i]:.3f}"} for i in order])
+
+
+def collect_panel(clip):
+    """Save the last recording into the library, rebuild the library, show clip counts."""
+    from src import collect
+    with st.expander("📼 Add this recording to the library", expanded=False):
+        if clip and clip.get("frames"):
+            signer = st.text_input("Signer name", key="collect_signer", placeholder="e.g. atman")
+            saved = st.session_state.get(f"saved_{clip['key']}")
+            if saved:
+                st.success(f"Saved: {saved}")
+            else:
+                st.write("Save as:")
+                cols = st.columns(len(config.ACTION_CLASSES))
+                for col, cls in zip(cols, config.ACTION_CLASSES):
+                    label = "None" if cls == "NONE" else vocab.DISPLAY[cls].replace(" check", "")
+                    if col.button(label, key=f"save_{cls}_{clip['key']}", use_container_width=True):
+                        try:
+                            path = collect.save_clip(clip["frames"], clip["fps"], cls, signer)
+                            st.session_state[f"saved_{clip['key']}"] = str(path.relative_to(config.ROOT))
+                            st.rerun()
+                        except ValueError as e:
+                            st.error(str(e))
+        else:
+            st.caption("Record an action first, then save it here with its correct label.")
+        counts = collect.clip_counts()
+        st.markdown("**Clips per class** (originals, augmented copies not counted)")
+        st.table([{"class": vocab.DISPLAY.get(c, c) if c != "NONE" else "None (not a sign)",
+                   "clips": sum(cn.values()), "signers": ", ".join(f"{k} ({v})" for k, v in sorted(cn.items()))}
+                  for c, cn in counts.items()])
+        if st.button("🔄 Rebuild library", key="rebuild"):
+            with st.spinner("Extracting features of new clips and rebuilding the library..."):
+                ok, log = collect.rebuild_library()
+            action_comparator.clear()
+            (st.success if ok else st.error)("Library rebuilt and reloaded." if ok else "Rebuild failed — see log.")
+            st.code(log[-3000:] or "(no output)")
+
+
 def action_mode():
     from src.action_features import mirror, process_frames, to_gif
     from src.capture import record_clip
@@ -210,7 +311,7 @@ def action_mode():
              f"perform the sign for {config.CLIP_SECONDS:.0f} seconds.")
     comp = action_comparator()
     if comp is None:
-        st.info("Action library not built yet (record clips, then `python scripts/build_all.py`). "
+        st.info("Action library not built yet. Record and save clips below, then press **Rebuild library**. "
                 "You can still record to check the landmark tracking.")
     live = st.empty()
     if st.button("🎬 Record action", type="primary", use_container_width=True):
@@ -228,20 +329,19 @@ def action_mode():
             result = comp.predict(seq, mirror(seq))
         st.session_state.action_clip = {
             "key": hashlib.md5(frames[len(frames) // 2].tobytes()).hexdigest()[:10],
-            "gif": to_gif(drawn, fps, width=320, step=3), "stats": stats, "usable": seq is not None, "result": result}
+            "gif": to_gif(drawn, fps, width=320, step=3), "stats": stats, "usable": seq is not None,
+            "result": result, "frames": frames, "fps": fps}
 
     clip = st.session_state.get("action_clip")
-    if not clip:
-        return
-    s = clip["stats"]
-    st.image(clip["gif"], caption=f"Recorded clip with landmarks — body in {s['pose_rate']:.0%}, "
-                                  f"hands in {s['hand_rate']:.0%} of frames", use_column_width=True)
-    if not clip["usable"]:
-        st.warning("🔁 Your upper body wasn't visible enough. Move back so your head and shoulders "
-                   "are in frame, then record again.")
-    elif clip["result"] is not None:
-        r = clip["result"]
-        show_decision(r["confidences"], r["out_of_range"], "act_" + clip["key"], reason=r.get("reject_reason"))
+    if clip:
+        if not clip["usable"]:
+            big_text("Please try again", "#e65100",
+                     sub="Your upper body wasn't visible enough. Move back so your head and shoulders are in frame.")
+        elif clip["result"] is not None:
+            action_result(clip["result"], "act_" + clip["key"])
+        if comp is not None:
+            action_debug(clip, comp)
+    collect_panel(clip)
 
 
 def sign_page():
