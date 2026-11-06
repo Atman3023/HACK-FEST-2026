@@ -1,5 +1,211 @@
 {
-  "signs": null,
-  "actions": null,
+  "signs": {
+    "error": "Held-out letter accuracy cannot be measured: the letter library has A: 1, B: 1, C: 1 image(s); at least 4 per letter are needed for a held-out split.",
+    "library": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "calibrated": false
+  },
+  "actions": {
+    "detection": {
+      "BLOOD_PRESSURE": {
+        "clips": 13,
+        "usable": 13,
+        "body": 1.0,
+        "hands": 0.9102564102564104
+      },
+      "FEVER": {
+        "clips": 30,
+        "usable": 30,
+        "body": 1.0,
+        "hands": 0.9826838016614835
+      },
+      "STOMACH_ACHE": {
+        "clips": 25,
+        "usable": 25,
+        "body": 1.0,
+        "hands": 0.9208647548890646
+      }
+    },
+    "detection_all": {
+      "clips": 68,
+      "usable": 68,
+      "body": 1.0,
+      "hands": 0.946109797873595
+    },
+    "signers": [
+      "atman",
+      "p1",
+      "p2",
+      "yt_fever",
+      "yt_sdlj"
+    ],
+    "augmented_train_only": 52,
+    "sources_per_class": {
+      "BLOOD_PRESSURE": [
+        "atman",
+        "p1",
+        "p2"
+      ],
+      "FEVER": [
+        "p1",
+        "yt_fever"
+      ],
+      "STOMACH_ACHE": [
+        "yt_sdlj"
+      ]
+    },
+    "measurable": [
+      "BLOOD_PRESSURE",
+      "FEVER"
+    ],
+    "unmeasurable": [
+      "STOMACH_ACHE"
+    ],
+    "has_none_clips": false,
+    "n": 11,
+    "top1_accuracy": 0.6363636363636364,
+    "per_class_accuracy": {
+      "BLOOD_PRESSURE": 0.4,
+      "FEVER": 0.8333333333333334,
+      "STOMACH_ACHE": null,
+      "NONE": null
+    },
+    "per_class_n": {
+      "BLOOD_PRESSURE": 5,
+      "FEVER": 6,
+      "STOMACH_ACHE": 0,
+      "NONE": 0
+    },
+    "labels": [
+      "BLOOD_PRESSURE",
+      "FEVER",
+      "STOMACH_ACHE",
+      "NONE"
+    ],
+    "confusion_matrix": [
+      [
+        2,
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        5,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0
+      ]
+    ],
+    "bands": {
+      "retry": 7,
+      "confirm": 4,
+      "final": 0
+    },
+    "per_class_bands": {
+      "BLOOD_PRESSURE": {
+        "retry": 4,
+        "confirm": 1,
+        "final": 0
+      },
+      "FEVER": {
+        "retry": 3,
+        "confirm": 3,
+        "final": 0
+      },
+      "STOMACH_ACHE": {
+        "retry": 0,
+        "confirm": 0,
+        "final": 0
+      },
+      "NONE": {
+        "retry": 0,
+        "confirm": 0,
+        "final": 0
+      }
+    },
+    "final_band_precision": null,
+    "confirm_band_top2_hit": 1.0,
+    "unmeasurable_n": 5,
+    "folds": {
+      "atman": {
+        "n": 3,
+        "classes": [
+          "BLOOD_PRESSURE"
+        ],
+        "top1_accuracy": 0.0,
+        "T": 0.029400480643347108,
+        "d_none": 1.550885965125635
+      },
+      "p1": {
+        "n": 3,
+        "classes": [
+          "BLOOD_PRESSURE",
+          "FEVER"
+        ],
+        "top1_accuracy": 1.0,
+        "T": 10.0,
+        "d_none": 3.426277458406985
+      },
+      "p2": {
+        "n": 1,
+        "classes": [
+          "BLOOD_PRESSURE"
+        ],
+        "top1_accuracy": 1.0,
+        "T": 0.3501900461431713,
+        "d_none": 2.603438393492252
+      },
+      "yt_fever": {
+        "n": 4,
+        "classes": [
+          "FEVER"
+        ],
+        "top1_accuracy": 0.75,
+        "T": 0.07048574036451903,
+        "d_none": 2.6211199507117273
+      },
+      "yt_sdlj": {
+        "n": 0,
+        "classes": [],
+        "top1_accuracy": null,
+        "T": 0.12626001098748565,
+        "d_none": 2.5999020820483567
+      }
+    },
+    "none_false_accept": null,
+    "none_false_reject": 0.09090909090909091,
+    "top_confusions": [
+      {
+        "true": "FEVER",
+        "predicted": "BLOOD_PRESSURE",
+        "count": 1
+      },
+      {
+        "true": "BLOOD_PRESSURE",
+        "predicted": "STOMACH_ACHE",
+        "count": 1
+      },
+      {
+        "true": "BLOOD_PRESSURE",
+        "predicted": "NONE",
+        "count": 1
+      }
+    ]
+  },
   "handwriting": null
 }

@@ -49,7 +49,8 @@ def count_clips(out_dir: Path):
     for cls in CLASSES:
         c = Counter()
         for p in (out_dir / cls).glob("*.mp4"):
-            c[p.stem.rsplit("_", 1)[0]] += 1
+            if "~aug-" not in p.stem:   # augmented copies from scripts/segment_videos.py
+                c[p.stem.rsplit("_", 1)[0]] += 1
         out[cls] = c
     return out
 

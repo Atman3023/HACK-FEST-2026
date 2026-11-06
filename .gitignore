@@ -6,8 +6,30 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
-# Data: raw letter images, recorded action clips, generated libraries (kept local, not in git)
+# Data: raw letter images, recorded/segmented action clips, source videos (incl. third-party YouTube
+# videos and team members' faces), generated libraries. The repo is public: never commit these.
 data/
+data/raw/
+data/actions/
+data/sources/
+
+# Videos and photos anywhere, except our own team's reference media in assets/isl/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.jpg
+*.jpeg
+!assets/isl/*.jpg
+!assets/isl/actions/*.mp4
+
+# Segment contact sheets = frames of the source videos (faces, YouTube content): local review only
+reports/segments/
+
+# models/: only the landmark-number libraries are committed. The handwriting model holds rendered font
+# bitmaps and is rebuilt automatically by the app when missing.
+models/handwriting_model.npz
 
 # Reports (accuracy.md/.json + charts) ARE committed — do not ignore reports/
 
@@ -20,3 +42,6 @@ Thumbs.db
 
 # Streamlit local secrets
 .streamlit/secrets.toml
+
+# Local Claude Code entry point (imports SIGN_BRIDGE.md); not part of the repo
+CLAUDE.md

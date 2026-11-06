@@ -37,7 +37,8 @@ def action_comparator():
         return None
     from src.dtw import ActionComparator
     m = np.load(ACTION_MODEL_PATH)
-    return ActionComparator(m["S"], m["y"], float(m["T"]), float(m["d_none"]), int(m["k"]))
+    min_motion = float(m["min_motion"]) if "min_motion" in m.files else 0.0
+    return ActionComparator(m["S"], m["y"], float(m["T"]), float(m["d_none"]), int(m["k"]), min_motion)
 
 
 @st.cache_resource
@@ -65,20 +66,37 @@ def confidence_bars(confidences, title="Confidence"):
         st.progress(min(max(c, 0.0), 1.0), text=f"{vocab.DISPLAY.get(cls, cls)} — {100 * c:.0f}%")
 
 
+def placeholder_card(cls):
+    st.markdown(
+        f"""<div style="border:2px dashed #9aa5b1;border-radius:12px;padding:28px 16px;text-align:center;
+        color:#52606d;max-width:360px;margin:4px 0 8px 0">
+        <div style="font-size:2.2rem">🎬</div>
+        <div style="font-weight:600;margin-top:6px">{vocab.DISPLAY[cls]}</div>
+        <div style="margin-top:4px">Reference clip to be recorded</div></div>""",
+        unsafe_allow_html=True)
+
+
 def show_final(cls, key, speech):
     st.success(f"## {vocab.DISPLAY.get(cls, cls)}")
     media = vocab.reference_media(cls)
-    if media is None:
-        where = f"assets/isl/{cls}.png" if cls in config.LETTERS else f"assets/isl/actions/{cls}.mp4"
-        st.caption(f"(Reference missing: {where})")
-    elif cls in config.LETTERS:
-        st.image(str(media), caption=f"ISL letter {cls}", width=260)
+    if cls in config.LETTERS:
+        if media is None:
+            st.caption(f"(Reference image missing: assets/isl/{cls}.jpg)")
+        else:
+            st.image(str(media), caption=f"ISL letter {cls}", width=300)
+    elif media is None:
+        placeholder_card(cls)
     else:
         st.video(str(media), loop=True, autoplay=True, muted=True)
-        st.caption(f"ISL sign: {vocab.DISPLAY[cls]}")
-    if st.button("🔊 Speak", key=f"speak_{key}"):
+        st.caption(f"ISL sign: {vocab.DISPLAY[cls]} (reference clip)")
+    # speak automatically once per result; reruns of the same result stay quiet
+    spoken = st.session_state.setdefault("spoken", set())
+    if key not in spoken:
+        spoken.add(key)
         if not tts.speak(speech):
             st.warning("Text-to-speech is unavailable on this machine.")
+    if st.button("🔊 Speak again", key=f"speak_{key}"):
+        tts.speak(speech)
 
 
 def speech_for(cls, visitor):
@@ -88,8 +106,10 @@ def speech_for(cls, visitor):
     return f"Visitor indicates: {name}" if visitor else name
 
 
-def show_decision(confidences, out_of_range, key, visitor=True, title="Confidence"):
+def show_decision(confidences, out_of_range, key, visitor=True, title="Confidence", reason=None):
     """Renders retry / confirm-top-2 / final. User confirmations are kept in session_state."""
+    if out_of_range:
+        title = "Closest match (rejected — not used)"
     confidence_bars(confidences, title)
     confirmed = st.session_state.get(f"confirmed_{key}")
     if confirmed:
@@ -97,7 +117,9 @@ def show_decision(confidences, out_of_range, key, visitor=True, title="Confidenc
         show_final(confirmed, key, speech_for(confirmed, visitor))
         return
     d = decide(confidences, out_of_range)
-    if d.band == "retry":
+    if d.band == "retry" and (out_of_range or d.top == "NONE"):
+        st.error("🚫 **Not a known sign** — please try again." + (f" ({reason})" if reason else ""))
+    elif d.band == "retry":
         st.warning(f"🔁 {d.message}")
     elif d.band == "confirm":
         st.info(d.message)
@@ -139,25 +161,30 @@ def home():
         shown = False
         if r and r.get("signs"):
             s = r["signs"]
-            st.write(f"Letters: **{100 * s['top1_accuracy']:.1f}%** top-1 on {s['n']} held-out images.")
+            if "error" in s:
+                st.write("Letters: held-out accuracy can't be measured yet (too few photos per letter).")
+            else:
+                st.write(f"Letters: **{100 * s['top1_accuracy']:.1f}%** top-1 on {s['n']} held-out images.")
             shown = True
-        if r and r.get("actions") and "top1_accuracy" in r["actions"]:
+        if r and r.get("actions") and r["actions"].get("top1_accuracy") is not None:
             a = r["actions"]
             st.write(f"Actions: **{100 * a['top1_accuracy']:.1f}%** top-1 on {a['n']} clips "
-                     f"(each signer held out in turn).")
+                     f"({', '.join(a['measurable'])}; each signer held out in turn).")
+            for c in a.get("unmeasurable", []):
+                st.write(f"{vocab.DISPLAY[c]}: can't be measured yet — only one source video.")
             shown = True
         if r and r.get("handwriting"):
             h = r["handwriting"]
             st.write(f"Handwriting: **{100 * h['top1_accuracy']:.1f}%** top-1 on {h['n']} test drawings.")
             shown = True
         if not shown:
-            st.write("Not evaluated yet — run `python -m src.evaluate`.")
+            st.write("Not evaluated yet — run `python scripts/build_all.py`.")
 
 
 def letter_mode():
     comp = sign_comparator()
     if comp is None:
-        st.error("Letter library not built. Run `python -m src.extract` then `python -m src.train`.")
+        st.error("Letter library not built. Run `python scripts/build_all.py`.")
         return
     shot = st.camera_input("Hold the letter sign in front of the camera, then take a photo")
     if shot is None:
@@ -183,8 +210,8 @@ def action_mode():
              f"perform the sign for {config.CLIP_SECONDS:.0f} seconds.")
     comp = action_comparator()
     if comp is None:
-        st.info("Action library not built yet (record clips, then `python -m src.extract_actions` and "
-                "`python -m src.train`). You can still record to check the landmark tracking.")
+        st.info("Action library not built yet (record clips, then `python scripts/build_all.py`). "
+                "You can still record to check the landmark tracking.")
     live = st.empty()
     if st.button("🎬 Record action", type="primary", use_container_width=True):
         try:
@@ -214,7 +241,7 @@ def action_mode():
                    "are in frame, then record again.")
     elif clip["result"] is not None:
         r = clip["result"]
-        show_decision(r["confidences"], r["out_of_range"], "act_" + clip["key"])
+        show_decision(r["confidences"], r["out_of_range"], "act_" + clip["key"], reason=r.get("reject_reason"))
 
 
 def sign_page():
@@ -229,60 +256,61 @@ def sign_page():
         action_mode()
 
 
-def letters_tab():
-    draw_tab, type_tab = st.tabs(["✏️ Draw", "⌨️ Type"])
-    with draw_tab:
-        st.write("Draw **one** capital letter (A, B or C).")
-        canvas = st_canvas(stroke_width=14, stroke_color="#000000", background_color="#FFFFFF",
-                           height=280, width=280, drawing_mode="freedraw",
-                           key=f"canvas_{st.session_state.get('canvas_n', 0)}")
-        if st.button("Clear drawing"):
-            st.session_state.canvas_n = st.session_state.get("canvas_n", 0) + 1
-            st.rerun()
-        if canvas.image_data is not None:
-            v = handwriting.preprocess(handwriting.ink_from_rgba(canvas.image_data))
-            if v is None:
-                st.caption("Draw a letter above.")
-            else:
-                key = "draw_" + hashlib.md5(v.tobytes()).hexdigest()[:10]
-                result = hw_comparator().predict(v)
-                show_decision(result["confidences"], result["out_of_range"], key, visitor=False)
-    with type_tab:
-        txt = st.text_input("Type a letter", max_chars=1, placeholder="A, B or C")
-        if txt:
-            letter = txt.strip().upper()
-            if letter in config.LETTERS:
-                confs = {l: 1.0 if l == letter else 0.0 for l in config.LETTERS}
-                show_decision(confs, False, f"typed_{letter}", visitor=False)
-            else:
-                st.error("Only the letters A, B and C are supported.")
+def type_tab():
+    st.write("Type a sign, e.g. **bp**, *check blood pressure*, *temperature*, *bukhar*, *tummy pain*, "
+             "*pet dard*, or a letter **a / b / c**. Typos are fine.")
+    txt = st.text_input("Type here", key="typed_text", placeholder="e.g. blood pressure")
+    if not txt.strip():
+        return
+    scores = vocab.match(txt)
+    if not vocab.in_vocabulary(scores):
+        st.error(f"**Not in vocabulary:** “{txt.strip()}”")
+        st.write("Supported signs: " + ", ".join(f"**{s}**" for s in vocab.supported_list()))
+        confidence_bars(scores, "Match")
+        return
+    show_decision(scores, False, "typed_" + vocab.normalize(txt), visitor=False, title="Match")
 
 
-def actions_tab():
-    st.write("Tap an action, or type it (e.g. *bp*, *temperature*, *stomach pain*).")
+def draw_tab():
+    st.write("Draw **one** capital letter (A, B or C).")
+    canvas = st_canvas(stroke_width=14, stroke_color="#000000", background_color="#FFFFFF",
+                       height=280, width=280, drawing_mode="freedraw",
+                       key=f"canvas_{st.session_state.get('canvas_n', 0)}")
+    if st.button("Clear drawing"):
+        st.session_state.canvas_n = st.session_state.get("canvas_n", 0) + 1
+        st.rerun()
+    if canvas.image_data is not None:
+        v = handwriting.preprocess(handwriting.ink_from_rgba(canvas.image_data))
+        if v is None:
+            st.caption("Draw a letter above.")
+        else:
+            key = "draw_" + hashlib.md5(v.tobytes()).hexdigest()[:10]
+            result = hw_comparator().predict(v)
+            show_decision(result["confidences"], result["out_of_range"], key, visitor=False)
+
+
+def buttons_tab():
+    st.write("Tap an action to show its ISL sign.")
     cols = st.columns(len(config.ACTIONS))
     for col, a in zip(cols, config.ACTIONS):
         if col.button(vocab.DISPLAY[a], key=f"btn_{a}", use_container_width=True):
             st.session_state.action_pick = a
-            st.session_state.action_text = ""
-    txt = st.text_input("Type an action", key="action_text", placeholder="e.g. blood pressure")
-    if txt.strip():
-        st.session_state.action_pick = None
-        scores = vocab.match_action(txt)
-        show_decision(scores, False, "typed_act_" + vocab.normalize(txt), visitor=False, title="Match")
-    elif st.session_state.get("action_pick"):
-        a = st.session_state.action_pick
-        show_final(a, f"btn_{a}", vocab.DISPLAY[a])
+            st.session_state.pick_n = st.session_state.get("pick_n", 0) + 1
+    a = st.session_state.get("action_pick")
+    if a:
+        show_final(a, f"btn_{a}_{st.session_state.get('pick_n', 0)}", vocab.DISPLAY[a])
 
 
 def text_page():
     st.header("Text / Drawing → Sign")
     st.caption(SCOPE)
-    letters, actions = st.tabs(["🔤 Letters", "🏥 Actions"])
-    with letters:
-        letters_tab()
-    with actions:
-        actions_tab()
+    t_type, t_draw, t_buttons = st.tabs(["⌨️ Type", "✏️ Draw a letter", "🏥 Pick an action"])
+    with t_type:
+        type_tab()
+    with t_draw:
+        draw_tab()
+    with t_buttons:
+        buttons_tab()
 
 
 # ---------- router ----------

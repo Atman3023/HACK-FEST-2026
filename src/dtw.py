@@ -11,6 +11,20 @@ from src.comparator import letter_kmean, softmax_conf
 
 CLASSES = config.ACTION_CLASSES   # (..actions.., "NONE")
 BAND = 0.25                       # Sakoe-Chiba band as a fraction of sequence length
+PALM_REL_SHOULDERS = (4, 18)      # columns of (x, y) palm position relative to the shoulder midpoint, per hand
+MIN_MOTION_FRACTION = 0.5         # reject inputs that move less than half the least-moving training sign
+
+
+def motion_extent(seq):
+    """How far the hands travel in a clip: max over hands of the diagonal of the box the palm covers,
+    in shoulder widths (body-relative, so swaying does not count). A still person scores ~0.05."""
+    return float(max(np.linalg.norm(seq[:, c:c + 2].max(0) - seq[:, c:c + 2].min(0)) for c in PALM_REL_SHOULDERS))
+
+
+def calibrate_min_motion(S, y):
+    """Motion gate from TRAINING clips: a fraction of the smallest motion among real action clips."""
+    m = [motion_extent(s) for s, c in zip(S, y) if c != "NONE"]
+    return MIN_MOTION_FRACTION * min(m) if m else 0.0
 
 
 def dtw_batch(A, B, band=BAND):
@@ -82,17 +96,22 @@ def calibrate(dist, y, groups, k=config.K_NEAREST):
 
 
 class ActionComparator:
-    def __init__(self, S, y, T, d_none, k=config.K_NEAREST):
+    def __init__(self, S, y, T, d_none, k=config.K_NEAREST, min_motion=0.0):
         self.S, self.y = np.asarray(S, np.float32), np.asarray(y)
         self.T, self.d_none, self.k = float(T), float(d_none), int(k)
+        self.min_motion = float(min_motion)
 
-    def predict_from_dist(self, d):
+    def predict_from_dist(self, d, motion=None):
         D = class_dists(d, self.y, self.d_none, self.k)
         conf = softmax_conf(D, self.T)
+        too_far = bool(np.min(D[:-1]) > self.d_none)    # farther than the calibrated rejection distance
+        still = motion is not None and motion < self.min_motion   # an action sign needs hand movement
         return {"confidences": dict(zip(CLASSES, conf.tolist())),
                 "distances": dict(zip(CLASSES, D.tolist())),
-                "out_of_range": False}
+                "motion": motion,
+                "reject_reason": "no hand movement" if still else "too different from every sign" if too_far else None,
+                "out_of_range": too_far or still}
 
     def predict(self, seq, seq_m):
         d = np.minimum(pairwise_dtw(seq[None], self.S), pairwise_dtw(seq_m[None], self.S))[0]
-        return self.predict_from_dist(d)
+        return self.predict_from_dist(d, motion_extent(seq))

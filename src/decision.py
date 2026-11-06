@@ -20,10 +20,8 @@ class Decision:
 def decide(confidences: dict, out_of_range: bool = False) -> Decision:
     ranked = sorted(confidences.items(), key=lambda kv: kv[1], reverse=True)
     top, top_conf = ranked[0]
-    if out_of_range:
-        return Decision("retry", ranked, "This doesn't look like one of the known signs. Please try again.")
-    if top == NONE:
-        return Decision("retry", ranked, "Not one of the known signs. Please try again.")
+    if out_of_range or top == NONE:
+        return Decision("retry", ranked, "Not a known sign. Please try again.")
     if top_conf < config.RETRY_BELOW:
         return Decision("retry", ranked, "Low confidence. Please try again.")
     if top_conf < config.FINAL_AT:
